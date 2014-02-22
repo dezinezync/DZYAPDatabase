@@ -1,0 +1,3 @@
+[submodule "DZYAPDatabase/vendor/YAPDatabase"]
+	path = DZYAPDatabase/vendor/YAPDatabase
+	url = https://github.com/yaptv/YapDatabase.git
