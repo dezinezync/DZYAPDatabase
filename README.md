@@ -24,6 +24,9 @@ Simple Abstraction layer over YAPDatabase for more convenient GETs, SETs, SETNXs
 +(void)delBG:(NSString *)key;
 +(void)del:(NSString *)key fromCollection:(NSString *)collection;
 +(void)delBG:(NSString *)key fromCollection:(NSString *)collection;
+
++ (void)removeAllObjectsFromCollection:(NSString *)collection;
++ (void)removeAllObjectsFromAllCollections;
 ~~~~
 
 - - -
