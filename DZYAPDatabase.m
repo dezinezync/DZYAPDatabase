@@ -224,4 +224,27 @@ static NSUInteger kCacheLimit = 5000;
     }];
 }
 
+#pragma mark - COL
++ (void)removeAllObjectsFromCollection:(NSString *)collection
+{
+	
+	[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[kBackgroundConnection]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+		
+		[transaction removeAllObjectsInCollection:collection];
+		
+	}];
+	
+}
+
++ (void)removeAllObjectsFromAllCollections
+{
+	
+	[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[@"background"]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+		
+		[transaction removeAllObjectsInAllCollections];
+		
+	}];
+	
+}
+
 @end

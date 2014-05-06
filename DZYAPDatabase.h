@@ -17,6 +17,8 @@ typedef void(^DZYAPDelBlock)(BOOL finished);
 @property (nonatomic, strong) YapDatabase *db;
 @property (nonatomic, strong) NSMutableDictionary *connections;
 
++ (instancetype)shared;
+
 #pragma mark - SET
 // Set a value, will replace value if it already exists
 +(void)set:(id)value key:(NSString *)key;
@@ -47,9 +49,8 @@ typedef void(^DZYAPDelBlock)(BOOL finished);
 +(void)del:(NSString *)key fromCollection:(NSString *)collection;
 +(void)delBG:(NSString *)key fromCollection:(NSString *)collection;
 
-/*
- *  The following will always be called on the main thread.
- *  Unless otherwise mentioned, the methods can be called across any thread
- */
+#pragma mark - COL
++ (void)removeAllObjectsFromCollection:(NSString *)collection;
++ (void)removeAllObjectsFromAllCollections;
 
 @end
