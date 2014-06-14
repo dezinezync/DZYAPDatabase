@@ -42,6 +42,8 @@ typedef void(^DZYAPDelBlock)(BOOL finished);
 +(id)get:(NSString *)key fromCollection:(NSString *)collection;
 +(void)getBG:(NSString *)key fromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete;
 
++ (void)getAllFromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete;
+
 #pragma mark - DEL
 +(void)del:(NSString *)key;
 +(void)delBG:(NSString *)key;

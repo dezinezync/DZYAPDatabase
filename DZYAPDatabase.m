@@ -189,6 +189,33 @@ static NSUInteger kCacheLimit = 5000;
 
 }
 
++ (void)getAllFromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete
+{
+    
+    YapDatabaseConnection *connection = (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
+    
+    [connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
+       
+        NSInteger total = [transaction numberOfKeysInCollection:collection];
+        
+        __block NSMutableArray *objs = [NSMutableArray arrayWithCapacity:total];
+        
+        [[transaction allKeysInCollection:collection] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+           
+            id objx = [transaction objectForKey:obj inCollection:collection];
+            [objs addObject:objx];
+            
+            if([objs count] == total)
+            {
+                complete(YES, objs);
+            }
+            
+        }];
+        
+    }];
+    
+}
+
 #pragma mark - DEL from default Collection
 
 +(void)del:(NSString *)key
