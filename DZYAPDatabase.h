@@ -11,6 +11,7 @@
 
 typedef void(^DZYAPGetBlock)(BOOL finished,id obj);
 typedef void(^DZYAPDelBlock)(BOOL finished);
+typedef void(^DZYapGetCountBlock)(NSInteger count);
 
 @interface DZYAPDatabase : NSObject
 
@@ -43,6 +44,7 @@ typedef void(^DZYAPDelBlock)(BOOL finished);
 +(void)getBG:(NSString *)key fromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete;
 
 + (void)getAllFromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete;
++ (void)getCountFromCollection:(NSString *)collection complete:(DZYapGetCountBlock)complete;
 
 #pragma mark - DEL
 +(void)del:(NSString *)key;
