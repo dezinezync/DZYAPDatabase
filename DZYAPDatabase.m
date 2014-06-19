@@ -110,7 +110,7 @@ static NSUInteger kCacheLimit = 5000;
 
 +(void)setBG:(id)value key:(NSString *)key collection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
+    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
     
     [connection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
         
@@ -126,7 +126,7 @@ static NSUInteger kCacheLimit = 5000;
 
 +(void)setNXBG:(id)value key:(NSString *)key collection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
+    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
     __block id ourOBJ;
     
     [connection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
@@ -161,14 +161,14 @@ static NSUInteger kCacheLimit = 5000;
 +(id)get:(NSString *)key fromCollection:(NSString *)collection
 {
     __block id ourOBJ;
-    
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
-    
-    [connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
-        
-        ourOBJ = [transaction objectForKey:key inCollection:collection];
-        
-    }];
+	
+	YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
+	
+	[connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
+		
+		ourOBJ = [transaction objectForKey:key inCollection:collection];
+		
+	}];
     
     return ourOBJ;
 }
@@ -193,10 +193,10 @@ static NSUInteger kCacheLimit = 5000;
 {
 	
     YapDatabaseConnection *connection = (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
-    
-    [connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
+	
+	[connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
        
-        NSInteger total = [transaction numberOfKeysInCollection:collection];
+		NSInteger total = [transaction numberOfKeysInCollection:collection];
 		
 		if(total == 0)
 		{
@@ -204,14 +204,14 @@ static NSUInteger kCacheLimit = 5000;
 			return;
 		}
 		
-        __block NSMutableArray *objs = [NSMutableArray arrayWithCapacity:total];
+		__block NSMutableArray *objs = [NSMutableArray arrayWithCapacity:total];
         
         [[transaction allKeysInCollection:collection] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
            
             id objx = [transaction objectForKey:obj inCollection:collection];
             [objs addObject:objx];
-            
-            if([objs count] == total)
+			
+			if([objs count] == total)
             {
                 complete(YES, objs);
             }
@@ -224,7 +224,7 @@ static NSUInteger kCacheLimit = 5000;
 
 + (void)getCountFromCollection:(NSString *)collection complete:(DZYapGetCountBlock)complete
 {
-	YapDatabaseConnection *connection = (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
+	YapDatabaseConnection *connection = (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
     
     [connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
 		
@@ -261,35 +261,48 @@ static NSUInteger kCacheLimit = 5000;
 
 +(void)delBG:(NSString *)key fromCollection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
-    
-    [connection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
-        
-        [transaction removeObjectForKey:key inCollection:collection];
-        
-    }];
+    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
+	
+	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+		
+		[connection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+			
+			[transaction removeObjectForKey:key inCollection:collection];
+			
+		}];
+		
+	});
+	
 }
 
 #pragma mark - COL
 + (void)removeAllObjectsFromCollection:(NSString *)collection
 {
 	
-	[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[kBackgroundConnection]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
 		
-		[transaction removeAllObjectsInCollection:collection];
+		[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[kMainConnection]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
 		
-	}];
+			[transaction removeAllObjectsInCollection:collection];
+		
+		}];
+		
+	});
 	
 }
 
 + (void)removeAllObjectsFromAllCollections
 {
 	
-	[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[@"background"]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
 		
-		[transaction removeAllObjectsInAllCollections];
+		[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[kBackgroundConnection]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
 		
-	}];
+			[transaction removeAllObjectsInAllCollections];
+		
+		}];
+		
+	});
 	
 }
 

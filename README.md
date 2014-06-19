@@ -1,6 +1,8 @@
 DZYAPDatabase
 =============
 
+#### Highly unstable at the moment. Do not use in production. I shal update this as soon as I have something stable. (2014/06/19)
+
 Simple Abstraction layer over YAPDatabase for more convenient GETs, SETs, SETNXs and DELs.
 
 
