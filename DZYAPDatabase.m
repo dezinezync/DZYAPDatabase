@@ -15,6 +15,51 @@ static NSUInteger kCacheLimit = 5000;
 
 #import "DZYAPDatabase.h"
 
+@interface NSObject (PGPerformSelectorOnMainThreadWithTwoObjects)
+- (void) performSelectorOnMainThread:(SEL)selector withObject:(id)arg1 withObject:(id)arg2 waitUntilDone:(BOOL)wait;
+- (void) performSelectorOnMainThread:(SEL)selector withObject:(id)arg1 withObject:(id)arg2 returningObject:(id *)returning waitUntilDone:(BOOL)wait;
+- (void) performSelectorOnMainThread:(SEL)selector withObject:(id)arg1 withObject:(id)arg2 withObject:(id)arg3 waitUntilDone:(BOOL)wait;
+@end
+
+@implementation NSObject (PGPerformSelectorOnMainThreadWithTwoObjects)
+
+- (void)performSelectorOnMainThread:(SEL)selector withObject:(id)arg1 withObject:(id)arg2 waitUntilDone:(BOOL)wait
+{
+	[self performSelectorOnMainThread:selector withObject:arg1 withObject:arg2 returningObject:nil waitUntilDone:wait];
+}
+
+- (void) performSelectorOnMainThread:(SEL)selector withObject:(id)arg1 withObject:(id)arg2 returningObject:(id *)returning waitUntilDone:(BOOL)wait
+{
+	NSMethodSignature *sig = [self methodSignatureForSelector:selector];
+	if (!sig) return;
+	
+	NSInvocation* invo = [NSInvocation invocationWithMethodSignature:sig];
+	[invo setTarget:self];
+	[invo setSelector:selector];
+	[invo setArgument:&arg1 atIndex:2];
+	[invo setArgument:&arg2 atIndex:3];
+	if(returning) [invo setArgument:&returning atIndex:4];
+	[invo retainArguments];
+	[invo performSelectorOnMainThread:@selector(invoke) withObject:nil waitUntilDone:wait];
+}
+
+- (void) performSelectorOnMainThread:(SEL)selector withObject:(id)arg1 withObject:(id)arg2 withObject:(id)arg3 waitUntilDone:(BOOL)wait
+{
+	NSMethodSignature *sig = [self methodSignatureForSelector:selector];
+	if (!sig) return;
+	
+	NSInvocation* invo = [NSInvocation invocationWithMethodSignature:sig];
+	[invo setTarget:self];
+	[invo setSelector:selector];
+	[invo setArgument:&arg1 atIndex:2];
+	[invo setArgument:&arg2 atIndex:3];
+	[invo setArgument:&arg3 atIndex:4];
+	[invo retainArguments];
+	[invo performSelectorOnMainThread:@selector(invoke) withObject:nil waitUntilDone:wait];
+}
+
+@end
+
 @implementation DZYAPDatabase
 
 - (instancetype)init
@@ -25,25 +70,13 @@ static NSUInteger kCacheLimit = 5000;
         NSURL *docsPath = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
         
         NSString *databasePath = [docsPath.absoluteString stringByAppendingPathComponent:dbName];
-        self.db = [[YapDatabase alloc] initWithPath:databasePath];
-        self.db.defaultObjectCacheLimit = kCacheLimit;
-        self.db.defaultMetadataCacheLimit = kCacheLimit;
+        _db = [[YapDatabase alloc] initWithPath:databasePath];
+        _db.defaultObjectCacheLimit = kCacheLimit;
+        _db.defaultMetadataCacheLimit = kCacheLimit;
         
-        self.connections = @{}.mutableCopy;
-        
-        //Get and set our main connection
-        [self.connections setObject:[self.db newConnection] forKey:kMainConnection];
-        
-        //Get and set our background connection
-        dispatch_sync(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
-            
-            @synchronized(self.connections)
-            {
-                [self.connections setObject:[self.db newConnection] forKey:kBackgroundConnection];
-            }
-            
-        });
-        
+		_connection = [_db newConnection];
+		_bgConnection = [_db newConnection];
+		
     }
     return self;
 }
@@ -83,9 +116,8 @@ static NSUInteger kCacheLimit = 5000;
 #pragma mark - SET in named Collection
 +(void)set:(id)value key:(NSString *)key collection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
-    
-    [connection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+	
+	[[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
         
         [transaction setObject:value forKey:key inCollection:collection];
         
@@ -94,13 +126,12 @@ static NSUInteger kCacheLimit = 5000;
 
 +(void)setNX:(id)value key:(NSString *)key collection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
-    
-    [connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
+	
+	[[DZYAPDatabase shared].bgConnection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
         
         if([transaction objectForKey:key inCollection:collection] == nil)
         {
-            [connection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *wtransaction) {
+            [[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *wtransaction) {
                 [wtransaction setObject:value forKey:key inCollection:collection];
             }];
         }
@@ -110,13 +141,12 @@ static NSUInteger kCacheLimit = 5000;
 
 +(void)setBG:(id)value key:(NSString *)key collection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
-    
-    [connection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
+	
+	[[DZYAPDatabase shared].bgConnection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
         
         if([transaction objectForKey:key inCollection:collection] == nil)
         {
-            [connection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *wtransaction) {
+            [[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *wtransaction) {
                 [wtransaction setObject:value forKey:key inCollection:collection];
             }];
         }
@@ -126,10 +156,10 @@ static NSUInteger kCacheLimit = 5000;
 
 +(void)setNXBG:(id)value key:(NSString *)key collection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
-    __block id ourOBJ;
+	
+	__block id ourOBJ;
     
-    [connection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
+    [[DZYAPDatabase shared].bgConnection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
         
         [transaction getObject:&ourOBJ metadata:nil forKey:key inCollection:collection];
         
@@ -137,19 +167,20 @@ static NSUInteger kCacheLimit = 5000;
         
         if(ourOBJ == nil)
         {
-            [connection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *wtransaction) {
+            [[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *wtransaction) {
                 [wtransaction setObject:value forKey:key inCollection:collection];
             }];
         }
         
     }];
+	
 }
 
 #pragma mark - GET from default Collection
 
 +(id)get:(NSString *)key
 {
-    return [DZYAPDatabase get:key fromCollection:kDefCollection];
+    return [DZYAPDatabase get:key fromCollection:kDefCollection returningValue:nil];
 }
 
 +(void)getBG:(NSString *)key complete:(DZYAPGetBlock)complete
@@ -157,81 +188,65 @@ static NSUInteger kCacheLimit = 5000;
     [DZYAPDatabase getBG:key fromCollection:kDefCollection complete:complete];
 }
 
-#pragma mark - GET from named Collection
 +(id)get:(NSString *)key fromCollection:(NSString *)collection
 {
-    __block id ourOBJ;
+	return [DZYAPDatabase get:key fromCollection:collection returningValue:nil];
+}
+
+#pragma mark - GET from named Collection
++(id)get:(NSString *)key fromCollection:(NSString *)collection returningValue:(id *)returning
+{
+	if(![NSThread isMainThread])
+	{
+		id ourReturningObj;
+		[[DZYAPDatabase shared] performSelectorOnMainThread:@selector(get:fromCollection:returningValue:) withObject:key withObject:collection returningObject:&ourReturningObj waitUntilDone:YES];
+		return ourReturningObj;
+	}
 	
-	YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
+	__block id ourOBJ;
 	
-	[connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
-		
-		ourOBJ = [transaction objectForKey:key inCollection:collection];
-		
-	}];
-    
-    return ourOBJ;
+	[[DZYAPDatabase shared] get:key fromCollection:collection returningValue:&ourOBJ];
+	
+	return ourOBJ;
+	
 }
 
 +(void)getBG:(NSString *)key fromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete
 {
-    
-    YapDatabaseConnection *connection = (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
-    
-    [connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
-        
-        id ourOBJ = [transaction objectForKey:key inCollection:collection];
-        
-        if(ourOBJ == nil) complete(NO, nil);
-        else complete(YES, ourOBJ);
-        
-    }];
+	
+	if(![NSThread isMainThread])
+	{
+		[[DZYAPDatabase shared] performSelectorOnMainThread:@selector(getBG:fromCollection:complete:) withObject:key withObject:collection withObject:complete waitUntilDone:NO];
+		return;
+	}
+	
+	[[DZYAPDatabase shared] getBG:key fromCollection:collection complete:complete];
 
 }
 
 + (void)getAllFromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete
 {
 	
-    YapDatabaseConnection *connection = (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kBackgroundConnection];
+	if(![NSThread isMainThread])
+	{
+		[[DZYAPDatabase shared] performSelectorOnMainThread:@selector(getAllFromCollection:complete:) withObject:collection withObject:complete waitUntilDone:NO];
+		return;
+	}
 	
-	[connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
-       
-		NSInteger total = [transaction numberOfKeysInCollection:collection];
-		
-		if(total == 0)
-		{
-			complete(YES, @[]);
-			return;
-		}
-		
-		__block NSMutableArray *objs = [NSMutableArray arrayWithCapacity:total];
-        
-        [[transaction allKeysInCollection:collection] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
-           
-            id objx = [transaction objectForKey:obj inCollection:collection];
-            [objs addObject:objx];
-			
-			if([objs count] == total)
-            {
-                complete(YES, objs);
-            }
-            
-        }];
-        
-    }];
+	[[DZYAPDatabase shared] getAllFromCollection:collection complete:complete];
     
 }
 
 + (void)getCountFromCollection:(NSString *)collection complete:(DZYapGetCountBlock)complete
 {
-	YapDatabaseConnection *connection = (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
-    
-    [connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
-		
-        NSInteger total = [transaction numberOfKeysInCollection:collection];
-		complete(total);
-		
-	}];
+	
+	if(![NSThread isMainThread])
+	{
+		[[DZYAPDatabase shared] performSelectorOnMainThread:@selector(getCountFromCollection:complete:) withObject:collection withObject:complete waitUntilDone:NO];
+		return;
+	}
+	
+	[[DZYAPDatabase shared] getCountFromCollection:collection complete:complete];
 	
 }
 
@@ -250,9 +265,7 @@ static NSUInteger kCacheLimit = 5000;
 #pragma mark - DEL from named Collection
 +(void)del:(NSString *)key fromCollection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
-    
-    [connection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+    [[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
         
         [transaction removeObjectForKey:key inCollection:collection];
         
@@ -261,17 +274,12 @@ static NSUInteger kCacheLimit = 5000;
 
 +(void)delBG:(NSString *)key fromCollection:(NSString *)collection
 {
-    YapDatabaseConnection *connection =  (YapDatabaseConnection *)[[DZYAPDatabase shared].connections objectForKey:kMainConnection];
 	
-	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+	[[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
 		
-		[connection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
-			
-			[transaction removeObjectForKey:key inCollection:collection];
-			
-		}];
+		[transaction removeObjectForKey:key inCollection:collection];
 		
-	});
+	}];
 	
 }
 
@@ -279,31 +287,92 @@ static NSUInteger kCacheLimit = 5000;
 + (void)removeAllObjectsFromCollection:(NSString *)collection
 {
 	
-	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+	[[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
 		
-		[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[kMainConnection]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+		[transaction removeAllObjectsInCollection:collection];
 		
-			[transaction removeAllObjectsInCollection:collection];
-		
-		}];
-		
-	});
+	}];
 	
 }
 
 + (void)removeAllObjectsFromAllCollections
 {
 	
-	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+	[[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
 		
-		[((YapDatabaseConnection *)[DZYAPDatabase shared].connections[kBackgroundConnection]) readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+		[transaction removeAllObjectsInAllCollections];
 		
-			[transaction removeAllObjectsInAllCollections];
+	}];
+	
+}
+
+#pragma mark - Class Methods
+
+- (id)get:(NSString *)key fromCollection:(NSString *)collection returningValue:(id *)returning
+{
+
+	[self.connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
 		
+		*returning = [transaction objectForKey:key inCollection:collection];
+		
+	}];
+	
+	return *returning;
+	
+}
+
+- (void)getBG:(NSString *)key fromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete
+{
+	[self.connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
+		
+		id ourOBJ = [transaction objectForKey:key inCollection:collection];
+		
+		if(ourOBJ == nil) complete(NO, nil);
+		else complete(YES, ourOBJ);
+		
+	}];
+}
+
+- (void)getAllFromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete
+{
+	
+	[self.connection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
+		
+		NSInteger total = [transaction numberOfKeysInCollection:collection];
+		
+		if(total == 0)
+		{
+			complete(YES, @[]);
+			return;
+		}
+		
+		__block NSMutableArray *objs = [NSMutableArray arrayWithCapacity:total];
+		
+		[[transaction allKeysInCollection:collection] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+			
+			id objx = [transaction objectForKey:obj inCollection:collection];
+			[objs addObject:objx];
+			
+			if([objs count] == total)
+			{
+				complete(YES, objs);
+			}
+			
 		}];
 		
-	});
+	}];
 	
+}
+
+- (void)getCountFromCollection:(NSString *)collection complete:(DZYapGetCountBlock)complete
+{
+	[self.connection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
+		
+		NSInteger total = [transaction numberOfKeysInCollection:collection];
+		
+		complete(total);
+		
+	}];
 }
 
 @end

@@ -17,6 +17,8 @@ typedef void(^DZYapGetCountBlock)(NSInteger count);
 
 @property (nonatomic, strong) YapDatabase *db;
 @property (nonatomic, strong) NSMutableDictionary *connections;
+@property (nonatomic, strong) YapDatabaseConnection *connection;
+@property (nonatomic, strong) YapDatabaseConnection *bgConnection;
 
 + (instancetype)shared;
 
@@ -41,6 +43,7 @@ typedef void(^DZYapGetCountBlock)(NSInteger count);
 +(void)getBG:(NSString *)key complete:(DZYAPGetBlock)complete;
 
 +(id)get:(NSString *)key fromCollection:(NSString *)collection;
++(id)get:(NSString *)key fromCollection:(NSString *)collection returningValue:(id *)returning;
 +(void)getBG:(NSString *)key fromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete;
 
 + (void)getAllFromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete;
