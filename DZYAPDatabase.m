@@ -102,12 +102,13 @@ static NSUInteger kCacheLimit = 5000;
 #pragma mark - SET in named Collection
 +(void)set:(id)value key:(NSString *)key collection:(NSString *)collection
 {
-	
-	[[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+    
+    [[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
         
         [transaction setObject:value forKey:key inCollection:collection];
         
     }];
+    
 }
 
 +(void)setNX:(id)value key:(NSString *)key collection:(NSString *)collection
@@ -182,23 +183,23 @@ static NSUInteger kCacheLimit = 5000;
 + (void)getMutli:(NSArray *)keys fromCollection:(NSString *)collection completion:(DZYAPGetBatchBlock)complete
 {
 	
-	if(![keys count]) complete(YES,keys);
+    if(![keys count]) complete(YES,keys);
 	
 	__block NSMutableArray *backingArray = [keys mutableCopy];
 	
 	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
 		
-		[[DZYAPDatabase shared].connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
+        [[DZYAPDatabase shared].connection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
 			
 			[keys enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
 				
-				id requiredObj = [transaction objectForKey:obj inCollection:collection];
-				if(requiredObj)
+                id requiredObj = [transaction objectForKey:obj inCollection:collection];
+                if(requiredObj)
 				{
-					[backingArray replaceObjectAtIndex:idx withObject:requiredObj];
+                    [backingArray replaceObjectAtIndex:idx withObject:requiredObj];
 				}
 				
-				if((idx+1) == [keys count]) complete(YES,keys);
+				if((idx+1) == [keys count]) complete(YES,backingArray);
 				
 			}];
 			
