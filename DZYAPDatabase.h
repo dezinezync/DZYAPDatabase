@@ -21,6 +21,10 @@ typedef void(^DZYapGetCountBlock)(NSInteger count);
 @property (nonatomic, strong) YapDatabaseConnection *connection;
 @property (nonatomic, strong) YapDatabaseConnection *bgConnection;
 
+#pragma mark - SEC KEY
+
++ (void)setEncryptionKey:(NSString *)key;
+
 #pragma mark - SET
 // Set a value, will replace value if it already exists
 + (void)set:(id)value key:(NSString *)key;
@@ -30,6 +34,10 @@ typedef void(^DZYapGetCountBlock)(NSInteger count);
 + (void)set:(id)value key:(NSString *)key collection:(NSString *)collection;
 + (void)setNX:(id)value key:(NSString *)key collection:(NSString *)collection;
 
+#pragma mark - Secure SET
+
++ (void)setSecure:(id)value key:(NSString *)key;
++ (void)setSecure:(id)value key:(NSString *)key collection:(NSString *)collection;
 
 #pragma mark - GET
 + (void)get:(NSString *)key completion:(DZYAPGetBlock)complete;

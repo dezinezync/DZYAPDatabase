@@ -33,14 +33,102 @@
 
 #endif
 
-static NSString const *kMainConnection = @"main";
-static NSString const *kBackgroundConnection = @"background";
-static NSString *kDefCollection = @"dzyap";
-static NSString *dbName = @"DZYAPDB.sqlite";
+static NSString *const kMainConnection = @"main";
+static NSString *const kBackgroundConnection = @"background";
+static NSString *const kDefCollection = @"dzyap";
+static NSString *const dbName = @"DZYAPDB.sqlite";
+static NSString *const secureKey = @"dzyapdb.secure";
 
 static NSUInteger kCacheLimit = 5000;
 
 #import "DZYAPDatabase.h"
+#import <CommonCrypto/CommonCrypto.h>
+
+@interface NSData (Crypto)
+
+// Source: http://www.lantean.co/encrypting-and-decrypting-nsdata-with-aes256/
+
+- (NSData *)encryptWithKey:(NSString *)key;
+- (NSData *)decryptWithKey:(NSString *)key;
+
+@end
+
+@implementation NSData (Crypto)
+
+- (NSData *)encryptWithKey:(NSString *)key
+{
+//  'key' should be 32 bytes for AES256, will be null-padded otherwise
+    char keyPtr[kCCKeySizeAES256 + 1];
+    bzero( keyPtr, sizeof( keyPtr ) );
+    
+//  fetch key data
+    [key getCString:keyPtr maxLength:sizeof( keyPtr ) encoding:NSUTF8StringEncoding];
+    
+    NSUInteger dataLength = [self length];
+    
+//  See the doc: For block ciphers, the output size will always be less than or equal to the input size plus the size of one block.
+//  That's why we need to add the size of one block here
+    size_t bufferSize = dataLength + kCCBlockSizeAES128;
+    void *buffer = malloc( bufferSize );
+    
+    size_t numBytesEncrypted = 0;
+    CCCryptorStatus cryptStatus = CCCrypt( kCCEncrypt, kCCAlgorithmAES128, kCCOptionPKCS7Padding,
+                                          keyPtr, kCCKeySizeAES256,
+                                          NULL /* initialization vector (optional) */,
+                                          [self bytes], dataLength, /* input */
+                                          buffer, bufferSize, /* output */
+                                          &numBytesEncrypted );
+    if( cryptStatus == kCCSuccess )
+    {
+//  The returned NSData takes ownership of the buffer and will free it on deallocation
+        return [NSData dataWithBytesNoCopy:buffer length:numBytesEncrypted];
+    }
+    
+    free( buffer );
+    return nil;
+}
+
+- (NSData*)decryptWithKey:(NSString *)key
+{
+//  'key' should be 32 bytes for AES256, will be null-padded otherwise
+    char keyPtr[kCCKeySizeAES256+1];
+    bzero( keyPtr, sizeof( keyPtr ) );
+    
+//  fetch key data
+    [key getCString:keyPtr maxLength:sizeof( keyPtr ) encoding:NSUTF8StringEncoding];
+    
+    NSUInteger dataLength = [self length];
+    
+//  See the doc: For block ciphers, the output size will always be less than or equal to the input size plus the size of one block.
+//  That's why we need to add the size of one block here
+    size_t bufferSize = dataLength + kCCBlockSizeAES128;
+    void *buffer = malloc( bufferSize );
+    
+    size_t numBytesDecrypted = 0;
+    CCCryptorStatus cryptStatus = CCCrypt( kCCDecrypt, kCCAlgorithmAES128, kCCOptionPKCS7Padding,
+                                          keyPtr, kCCKeySizeAES256,
+                                          NULL /* initialization vector (optional) */,
+                                          [self bytes], dataLength, /* input */
+                                          buffer, bufferSize, /* output */
+                                          &numBytesDecrypted );
+    
+    if( cryptStatus == kCCSuccess )
+    {
+//  The returned NSData takes ownership of the buffer and will free it on deallocation
+        return [NSData dataWithBytesNoCopy:buffer length:numBytesDecrypted];
+    }
+    
+    free( buffer );
+    return nil;
+}
+
+@end
+
+@interface DZYAPDatabase()
+
+@property (nonatomic, copy) NSString *encKey;
+
+@end
 
 @implementation DZYAPDatabase
 
@@ -48,7 +136,9 @@ static NSUInteger kCacheLimit = 5000;
 {
     if(self = [super init])
     {
-     
+        
+        __weak DZYAPDatabase *weakSelf = self;
+        
         NSURL *docsPath = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
         
         NSString *databasePath = [docsPath.absoluteString stringByAppendingPathComponent:dbName];
@@ -62,9 +152,37 @@ static NSUInteger kCacheLimit = 5000;
 //		Background Thread connection : ReadWrite
 		_bgConnection = [_db newConnection];
 		_bgConnection.objectPolicy = YapDatabasePolicyShare;
-		
+        
     }
     return self;
+}
+
++ (NSData *)encryptObject:(id)obj
+{
+    
+    if(!obj) return nil;
+    if(![DZYAPDatabase shared].encKey || ![DZYAPDatabase shared].encKey.length) return nil;
+    
+    NSData *uncrypt = [NSKeyedArchiver archivedDataWithRootObject:obj];
+    
+    NSData *encrypt = [uncrypt encryptWithKey:[DZYAPDatabase shared].encKey];
+    
+    return encrypt;
+    
+}
+
++ (id)decryptData:(NSData *)data
+{
+    
+    if(!data || !strlen([data bytes])) nil;
+    if(![DZYAPDatabase shared].encKey || ![DZYAPDatabase shared].encKey.length) return nil;
+    
+    NSData *uncrypt = [data decryptWithKey:[DZYAPDatabase shared].encKey];
+    
+    id object = [NSKeyedUnarchiver unarchiveObjectWithData:uncrypt];
+    
+    return object;
+    
 }
 
 + (instancetype)shared
@@ -76,6 +194,16 @@ static NSUInteger kCacheLimit = 5000;
     });
     
     return DZDB;
+}
+
++ (void)setEncryptionKey:(NSString *)key
+{
+    if(!key || !key.length)
+    {
+        NSLog(@"Not a valid signing key. Ignoring request.");
+        return;
+    }
+    [DZYAPDatabase shared].encKey = key;
 }
 
 #pragma mark - SET in Default Collection
@@ -97,6 +225,11 @@ static NSUInteger kCacheLimit = 5000;
 +(void)setNXBG:(id)value key:(NSString *)key
 {
     [DZYAPDatabase setNXBG:value key:key collection:kDefCollection];
+}
+
++ (void)setSecure:(id)value key:(NSString *)key
+{
+    [DZYAPDatabase setSecure:value key:key collection:kDefCollection];
 }
 
 #pragma mark - SET in named Collection
@@ -163,11 +296,41 @@ static NSUInteger kCacheLimit = 5000;
 	
 }
 
++ (void)setSecure:(id)value key:(NSString *)key collection:(NSString *)collection
+{
+ 
+    if(![DZYAPDatabase shared].encKey || ![[DZYAPDatabase shared].encKey length])
+    {
+        NSLog(@"No encryption key set. Not proceeding.");
+        return;
+    }
+    
+    NSData *secured = [DZYAPDatabase encryptObject:value];
+    
+    if(!secured || !strlen([secured bytes]))
+    {
+        NSLog(@"Encryption failed. Not proceeding.");
+        return;
+    }
+    
+    [[DZYAPDatabase shared].bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+        
+        [transaction setObject:secured forKey:key inCollection:collection withMetadata:@{secureKey:@(YES)}];
+        
+    }];
+    
+}
+
 #pragma mark - GET from default Collection
 
 + (void)get:(NSString *)key completion:(DZYAPGetBlock)complete
 {
-    return [DZYAPDatabase get:key fromCollection:kDefCollection completion:complete];
+    [DZYAPDatabase get:key fromCollection:kDefCollection completion:complete];
+}
+
++ (void)getSecure:(NSString *)key completion:(DZYAPGetBlock)complete
+{
+    [DZYAPDatabase getSecure:key fromCollection:kDefCollection complete:complete];
 }
 
 #pragma mark - GET from named Collection
@@ -178,6 +341,17 @@ static NSUInteger kCacheLimit = 5000;
 		[[DZYAPDatabase shared] get:key fromCollection:collection completion:complete];
 	});
 
+}
+
++ (void)getSecure:(NSString *)key fromCollection:(NSString *)collection complete:(DZYAPGetBlock)complete
+{
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+       
+        [[DZYAPDatabase shared] getSecure:key fromCollection:collection completion:complete];
+        
+    });
+    
 }
 
 + (void)getMutli:(NSArray *)keys fromCollection:(NSString *)collection completion:(DZYAPGetBatchBlock)complete
@@ -300,16 +474,98 @@ static NSUInteger kCacheLimit = 5000;
 	[self.bgConnection asyncReadWriteWithBlock:^(YapDatabaseReadTransaction *transaction) {
 		
 		ourObj = [transaction objectForKey:key inCollection:collection];
-		if(ourObj)
-		{
-			safeBlock(dispatch_get_main_queue(),complete,YES, ourObj);
-			return;
-		}
-		
-		safeBlock(dispatch_get_main_queue(),complete,YES, nil);
+		NSDictionary *meta = [transaction metadataForKey:key inCollection:collection];
+        
+        if(meta && [[meta objectForKey:secureKey] boolValue])
+        {
+//          Is Secured according to the DB
+            
+            if(ourObj)
+            {
+                
+//              It is actually Encrypted
+                if([ourObj isKindOfClass:[NSData class]])
+                {
+                    id sendObj = [DZYAPDatabase decryptData:ourObj];
+                    safeBlock(dispatch_get_main_queue(),complete,YES, sendObj);
+                }
+                else
+                {
+//                    It isn't encrypted
+                    safeBlock(dispatch_get_main_queue(),complete,YES, ourObj);
+                }
+                
+            }
+            else
+            {
+                safeBlock(dispatch_get_main_queue(),complete,NO, nil);
+            }
+            
+        }
+        else
+        {
+            if(ourObj)
+            {
+                safeBlock(dispatch_get_main_queue(),complete,YES, ourObj);
+                return;
+            }
+            safeBlock(dispatch_get_main_queue(),complete,NO, nil);
+            
+        }
 		
 	}];
 	
+}
+
+- (void)getSecure:(NSString *)key fromCollection:(NSString *)collection completion:(DZYAPGetBlock)complete
+{
+    
+    __block id ourObj;
+    
+    [self.bgConnection asyncReadWithBlock:^(YapDatabaseReadTransaction *transaction) {
+       
+        ourObj = [transaction objectForKey:key inCollection:collection];
+        NSDictionary *meta = [transaction metadataForKey:key inCollection:collection];
+        
+        if(meta && [[meta objectForKey:secureKey] boolValue])
+        {
+//          Is Secured according to the DB
+            
+            if(ourObj)
+            {
+                
+//              It is actually Encrypted
+                if([ourObj isKindOfClass:[NSData class]])
+                {
+                    id sendObj = [DZYAPDatabase decryptData:ourObj];
+                    safeBlock(dispatch_get_main_queue(),complete,YES, sendObj);
+                }
+                else
+                {
+//                    It isn't encrypted
+                    safeBlock(dispatch_get_main_queue(),complete,YES, ourObj);
+                }
+                
+            }
+            else
+            {
+                safeBlock(dispatch_get_main_queue(),complete,NO, nil);
+            }
+            
+        }
+        else
+        {
+            if(ourObj)
+            {
+                safeBlock(dispatch_get_main_queue(),complete,YES, ourObj);
+                return;
+            }
+            safeBlock(dispatch_get_main_queue(),complete,NO, nil);
+            
+        }
+        
+   }];
+    
 }
 
 - (void)getAllFromCollection:(NSString *)collection complete:(DZYAPGetBatchBlock)complete
