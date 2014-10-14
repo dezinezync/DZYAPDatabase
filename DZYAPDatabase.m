@@ -137,8 +137,8 @@ static NSUInteger kCacheLimit = 5000;
     if(self = [super init])
     {
         
-        __weak DZYAPDatabase *weakSelf = self;
-        
+//        __weak DZYAPDatabase *weakSelf = self;
+		
         NSURL *docsPath = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
         
         NSString *databasePath = [docsPath.absoluteString stringByAppendingPathComponent:dbName];
