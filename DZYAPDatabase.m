@@ -506,10 +506,10 @@ static NSUInteger kCacheLimit = 5000;
         {
             if(ourObj)
             {
-                safeBlock(dispatch_get_main_queue(),complete,YES, ourObj);
+                complete(YES, ourObj);
                 return;
             }
-            safeBlock(dispatch_get_main_queue(),complete,NO, nil);
+            complete(NO, nil);
             
         }
 		
